@@ -1,0 +1,189 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: panel-tk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-panel_tk}
+      POSTGRES_USER: ${DB_USER:-paneltk}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-paneltk_secure_password_2024}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./logs/postgres:/var/log/postgresql
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    networks:
+      - panel-tk-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-paneltk} -d ${DB_NAME:-panel_tk}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: panel-tk-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secure_password_2024}
+    volumes:
+      - redis_data:/data
+      - ./logs/redis:/var/log/redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - panel-tk-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Node.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: panel-tk-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3000}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-panel_tk}
+      DB_USER: ${DB_USER:-paneltk}
+      DB_PASSWORD: ${DB_PASSWORD:-paneltk_secure_password_2024}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_password_2024}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PTERODACTYL_URL: ${PTERODACTYL_URL:-https://your-pterodactyl-panel.com}
+      PTERODACTYL_API_KEY: ${PTERODACTYL_API_KEY:-your-pterodactyl-api-key}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs/app:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - panel-tk-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: panel-tk-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/ssl/certs
+      - ./logs/nginx:/var/log/nginx
+      - ./uploads:/var/www/uploads
+    depends_on:
+      - app
+    networks:
+      - panel-tk-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Logrotate Service
+  logrotate:
+    image: alpine:latest
+    container_name: panel-tk-logrotate
+    restart: unless-stopped
+    volumes:
+      - ./docker/logrotate/logrotate.conf:/etc/logrotate.conf
+      - ./logs:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: |
+      sh -c "apk add --no-cache logrotate && 
+             while true; do 
+               logrotate -f /etc/logrotate.conf
+               sleep 86400
+             done"
+    depends_on:
+      - nginx
+      - app
+      - postgres
+      - redis
+    networks:
+      - panel-tk-network
+
+  # Monitoring (Optional - Prometheus)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: panel-tk-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - panel-tk-network
+    profiles:
+      - monitoring
+
+  # Grafana (Optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: panel-tk-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - panel-tk-network
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  panel-tk-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

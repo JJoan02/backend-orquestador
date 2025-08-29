@@ -1,0 +1,58 @@
+FROM node:18-alpine
+
+# Install system dependencies for restore operations
+RUN apk add --no-cache \
+    bash \
+    curl \
+    jq \
+    postgresql-client \
+    redis \
+    openssh-client \
+    rsync \
+    tar \
+    gzip \
+    unzip \
+    aws-cli \
+    rclone \
+    openssl \
+    ca-certificates \
+    tzdata
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/backups /app/logs /app/config /app/uploads
+
+# Install additional restore tools
+RUN npm install -g \
+    @aws-sdk/client-s3 \
+    @google-cloud/storage \
+    azure-storage
+
+# Set permissions
+RUN chmod +x /app/scripts/*.sh
+
+# Create restore user
+RUN addgroup -g 1001 -S restore && \
+    adduser -S restore -u 1001 -G restore
+
+# Change ownership
+RUN chown -R restore:restore /app
+
+# Switch to restore user
+USER restore
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
+
+# Default command
+CMD ["node", "index.js"]

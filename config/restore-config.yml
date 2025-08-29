@@ -1,0 +1,250 @@
+# PanelTK Restore Configuration
+# This file contains all configuration options for the restore system
+
+# General Configuration
+general:
+  app_name: "PanelTK"
+  environment: ${NODE_ENV:-production}
+  timezone: ${TZ:-UTC}
+  log_level: ${LOG_LEVEL:-INFO}
+  
+# Backup Sources Configuration
+backup_sources:
+  local:
+    enabled: ${LOCAL_BACKUP_ENABLED:-true}
+    path: ${LOCAL_BACKUP_PATH:-/app/backups}
+    retention_days: ${LOCAL_RETENTION_DAYS:-30}
+    
+  s3:
+    enabled: ${S3_BACKUP_ENABLED:-false}
+    bucket: ${S3_BUCKET:-}
+    region: ${S3_REGION:-us-east-1}
+    access_key: ${S3_ACCESS_KEY:-}
+    secret_key: ${S3_SECRET_KEY:-}
+    endpoint: ${S3_ENDPOINT:-}
+    path_style: ${S3_PATH_STYLE:-false}
+    retention_days: ${S3_RETENTION_DAYS:-90}
+    
+  gcs:
+    enabled: ${GCS_BACKUP_ENABLED:-false}
+    bucket: ${GCS_BUCKET:-}
+    project_id: ${GCS_PROJECT_ID:-}
+    credentials_file: ${GCS_CREDENTIALS_FILE:-}
+    retention_days: ${GCS_RETENTION_DAYS:-90}
+    
+  azure:
+    enabled: ${AZURE_BACKUP_ENABLED:-false}
+    account_name: ${AZURE_ACCOUNT_NAME:-}
+    account_key: ${AZURE_ACCOUNT_KEY:-}
+    container: ${AZURE_CONTAINER:-}
+    retention_days: ${AZURE_RETENTION_DAYS:-90}
+    
+  ftp:
+    enabled: ${FTP_BACKUP_ENABLED:-false}
+    host: ${FTP_HOST:-}
+    port: ${FTP_PORT:-21}
+    username: ${FTP_USERNAME:-}
+    password: ${FTP_PASSWORD:-}
+    path: ${FTP_PATH:-/backups}
+    passive_mode: ${FTP_PASSIVE_MODE:-true}
+    retention_days: ${FTP_RETENTION_DAYS:-60}
+    
+  sftp:
+    enabled: ${SFTP_BACKUP_ENABLED:-false}
+    host: ${SFTP_HOST:-}
+    port: ${SFTP_PORT:-22}
+    username: ${SFTP_USERNAME:-}
+    password: ${SFTP_PASSWORD:-}
+    key_file: ${SFTP_KEY_FILE:-}
+    path: ${SFTP_PATH:-/backups}
+    retention_days: ${SFTP_RETENTION_DAYS:-60}
+
+# Database Configuration
+database:
+  postgres:
+    host: ${DB_HOST:-postgres}
+    port: ${DB_PORT:-5432}
+    name: ${DB_NAME:-panel_tk}
+    user: ${DB_USER:-paneltk}
+    password: ${DB_PASSWORD:-paneltk_secure_password_2024}
+    backup_format: ${DB_BACKUP_FORMAT:-custom}
+    parallel_jobs: ${DB_PARALLEL_JOBS:-4}
+    compression: ${DB_COMPRESSION:-9}
+    
+  redis:
+    host: ${REDIS_HOST:-redis}
+    port: ${REDIS_PORT:-6379}
+    password: ${REDIS_PASSWORD:-redis_secure_password_2024}
+    database: ${REDIS_DATABASE:-0}
+    backup_format: ${REDIS_BACKUP_FORMAT:-rdb}
+
+# Volume Configuration
+volumes:
+  postgres_data:
+    path: /var/lib/postgresql/data
+    backup_enabled: true
+    compression: gzip
+    exclude_patterns:
+      - "*.log"
+      - "postmaster.pid"
+      
+  redis_data:
+    path: /data
+    backup_enabled: true
+    compression: gzip
+    
+  uploads:
+    path: /app/uploads
+    backup_enabled: true
+    compression: gzip
+    exclude_patterns:
+      - "*.tmp"
+      - "cache/*"
+      
+  ssl_certs:
+    path: /etc/ssl/certs
+    backup_enabled: true
+    compression: gzip
+    
+  prometheus_data:
+    path: /prometheus
+    backup_enabled: ${PROMETHEUS_BACKUP_ENABLED:-false}
+    compression: gzip
+    retention_days: ${PROMETHEUS_RETENTION_DAYS:-30}
+    
+  grafana_data:
+    path: /var/lib/grafana
+    backup_enabled: ${GRAFANA_BACKUP_ENABLED:-false}
+    compression: gzip
+    retention_days: ${GRAFANA_RETENTION_DAYS:-30}
+
+# Encryption Configuration
+encryption:
+  enabled: ${ENCRYPTION_ENABLED:-false}
+  algorithm: ${ENCRYPTION_ALGORITHM:-aes-256-cbc}
+  key_file: ${ENCRYPTION_KEY_FILE:-}
+  key_env: ${ENCRYPTION_KEY_ENV:-ENCRYPTION_KEY}
+  compression_before_encryption: ${COMPRESSION_BEFORE_ENCRYPTION:-true}
+
+# Notification Configuration
+notifications:
+  slack:
+    enabled: ${SLACK_ENABLED:-false}
+    webhook_url: ${SLACK_WEBHOOK:-}
+    channel: ${SLACK_CHANNEL:-#alerts}
+    username: ${SLACK_USERNAME:-PanelTK-Restore}
+    
+  discord:
+    enabled: ${DISCORD_ENABLED:-false}
+    webhook_url: ${DISCORD_WEBHOOK:-}
+    
+  email:
+    enabled: ${EMAIL_ENABLED:-false}
+    smtp_host: ${SMTP_HOST:-}
+    smtp_port: ${SMTP_PORT:-587}
+    smtp_user: ${SMTP_USER:-}
+    smtp_password: ${SMTP_PASSWORD:-}
+    from_address: ${EMAIL_FROM:-noreply@paneltk.com}
+    to_addresses: ${EMAIL_TO:-admin@paneltk.com}
+    
+  webhook:
+    enabled: ${WEBHOOK_ENABLED:-false}
+    url: ${WEBHOOK_URL:-}
+    headers:
+      Authorization: ${WEBHOOK_AUTH:-}
+      Content-Type: application/json
+
+# Health Check Configuration
+health_checks:
+  enabled: true
+  timeout: ${HEALTH_CHECK_TIMEOUT:-300}
+  retries: ${HEALTH_CHECK_RETRIES:-5}
+  endpoints:
+    app: ${APP_URL:-http://localhost}/api/health
+    postgres: "pg_isready -h postgres -U paneltk -d panel_tk"
+    redis: "redis-cli -h redis ping"
+    nginx: "curl -f http://localhost/health"
+
+# Restore Strategies
+restore_strategies:
+  full_restore:
+    enabled: true
+    description: "Complete system restore"
+    includes:
+      - database
+      - volumes
+      - configuration
+      - ssl_certs
+      
+  database_only:
+    enabled: true
+    description: "Database only restore"
+    includes:
+      - database
+      
+  volumes_only:
+    enabled: true
+    description: "Volumes only restore"
+    includes:
+      - volumes
+      
+  config_only:
+    enabled: true
+    description: "Configuration only restore"
+    includes:
+      - configuration
+      
+  disaster_recovery:
+    enabled: true
+    description: "Complete disaster recovery"
+    includes:
+      - everything
+    additional_steps:
+      - regenerate_ssl_certs
+      - update_dns
+      - notify_stakeholders
+
+# Validation Configuration
+validation:
+  checksum_verification: true
+  integrity_checks: true
+  test_restore: true
+  rollback_on_failure: true
+  backup_before_restore: true
+  
+# Performance Configuration
+performance:
+  parallel_uploads: ${PARALLEL_UPLOADS:-4}
+  parallel_downloads: ${PARALLEL_DOWNLOADS:-4}
+  chunk_size: ${CHUNK_SIZE:-64M}
+  compression_level: ${COMPRESSION_LEVEL:-6}
+  memory_limit: ${MEMORY_LIMIT:-1G}
+  
+# Logging Configuration
+logging:
+  level: ${LOG_LEVEL:-INFO}
+  file: ${LOG_FILE:-/app/logs/restore.log}
+  max_size: ${LOG_MAX_SIZE:-100M}
+  max_files: ${LOG_MAX_FILES:-10}
+  format: ${LOG_FORMAT:-json}
+  
+# Advanced Configuration
+advanced:
+  pre_restore_hooks:
+    - name: "maintenance_mode"
+      command: "docker-compose exec app npm run maintenance:enable"
+    - name: "backup_current"
+      command: "docker-compose exec app npm run backup:quick"
+      
+  post_restore_hooks:
+    - name: "clear_cache"
+      command: "docker-compose exec app npm run cache:clear"
+    - name: "restart_services"
+      command: "docker-compose restart"
+    - name: "disable_maintenance"
+      command: "docker-compose exec app npm run maintenance:disable"
+      
+  custom_scripts:
+    enabled: true
+    path: /app/scripts/custom
+    auto_execute: true

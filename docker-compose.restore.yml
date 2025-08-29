@@ -1,0 +1,161 @@
+version: '3.8'
+
+# Enhanced Docker Compose for Restore Operations
+# This file extends the main docker-compose.yml with additional services for restore operations
+
+services:
+  # Restore Coordinator Service
+  restore-coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile.restore
+    container_name: panel-tk-restore-coordinator
+    restart: "no"
+    environment:
+      - RESTORE_MODE=${RESTORE_MODE:-standard}
+      - BACKUP_SOURCE=${BACKUP_SOURCE:-local}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - NOTIFICATION_WEBHOOK=${NOTIFICATION_WEBHOOK:-}
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+      - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
+    volumes:
+      - ./scripts:/app/scripts
+      - ./config:/app/config
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - postgres_data:/var/lib/postgresql/data
+      - redis_data:/data
+      - nginx_ssl:/etc/ssl/certs
+      - prometheus_data:/prometheus
+      - grafana_data:/var/lib/grafana
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - panel-tk-network
+    profiles:
+      - restore
+
+  # Backup Validator Service
+  backup-validator:
+    image: alpine:latest
+    container_name: panel-tk-backup-validator
+    restart: "no"
+    volumes:
+      - ./scripts:/app/scripts
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+    command: |
+      sh -c "apk add --no-cache bash postgresql-client redis curl jq &&
+             chmod +x /app/scripts/validate-backup.sh &&
+             /app/scripts/validate-backup.sh"
+    networks:
+      - panel-tk-network
+    profiles:
+      - restore
+
+  # Data Migration Service
+  data-migrator:
+    image: postgres:15-alpine
+    container_name: panel-tk-data-migrator
+    restart: "no"
+    environment:
+      - SOURCE_DB_HOST=${SOURCE_DB_HOST:-}
+      - SOURCE_DB_PORT=${SOURCE_DB_PORT:-5432}
+      - SOURCE_DB_NAME=${SOURCE_DB_NAME:-}
+      - SOURCE_DB_USER=${SOURCE_DB_USER:-}
+      - SOURCE_DB_PASSWORD=${SOURCE_DB_PASSWORD:-}
+      - TARGET_DB_HOST=postgres
+      - TARGET_DB_PORT=5432
+      - TARGET_DB_NAME=${DB_NAME:-panel_tk}
+      - TARGET_DB_USER=${DB_USER:-paneltk}
+      - TARGET_DB_PASSWORD=${DB_PASSWORD:-paneltk_secure_password_2024}
+    volumes:
+      - ./scripts:/scripts
+      - ./backups:/backups
+    command: |
+      sh -c "chmod +x /scripts/migrate-data.sh && /scripts/migrate-data.sh"
+    networks:
+      - panel-tk-network
+    profiles:
+      - restore
+
+  # Volume Backup Service
+  volume-backup:
+    image: alpine:latest
+    container_name: panel-tk-volume-backup
+    restart: "no"
+    volumes:
+      - ./scripts:/app/scripts
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+      - postgres_data:/source/postgres
+      - redis_data:/source/redis
+      - prometheus_data:/source/prometheus
+      - grafana_data:/source/grafana
+      - nginx_ssl:/source/ssl
+    command: |
+      sh -c "apk add --no-cache tar gzip bash &&
+             chmod +x /app/scripts/backup-volumes.sh &&
+             /app/scripts/backup-volumes.sh"
+    networks:
+      - panel-tk-network
+    profiles:
+      - restore
+
+  # Volume Restore Service
+  volume-restore:
+    image: alpine:latest
+    container_name: panel-tk-volume-restore
+    restart: "no"
+    volumes:
+      - ./scripts:/app/scripts
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+      - postgres_data:/target/postgres
+      - redis_data:/target/redis
+      - prometheus_data:/target/prometheus
+      - grafana_data:/target/grafana
+      - nginx_ssl:/target/ssl
+    command: |
+      sh -c "apk add --no-cache tar gzip bash &&
+             chmod +x /app/scripts/restore-volumes.sh &&
+             /app/scripts/restore-volumes.sh"
+    networks:
+      - panel-tk-network
+    profiles:
+      - restore
+
+  # Health Check Service
+  restore-health-check:
+    image: alpine:latest
+    container_name: panel-tk-restore-health
+    restart: "no"
+    environment:
+      - APP_URL=${APP_URL:-http://localhost}
+      - HEALTH_CHECK_TIMEOUT=${HEALTH_CHECK_TIMEOUT:-300}
+    volumes:
+      - ./scripts:/app/scripts
+    command: |
+      sh -c "apk add --no-cache curl bash &&
+             chmod +x /app/scripts/restore-health-check.sh &&
+             /app/scripts/restore-health-check.sh"
+    networks:
+      - panel-tk-network
+    profiles:
+      - restore
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  nginx_ssl:
+    driver: local
+
+networks:
+  panel-tk-network:
+    external: true
